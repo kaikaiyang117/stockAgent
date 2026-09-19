@@ -34,7 +34,11 @@ function App() {
   const selectedMarket = preparedMarket.find((item) => item.date === selectedDate) ?? preparedMarket[0]
   const relatedEvents = useMemo(() => eventsForDate(mapped, selectedDate), [selectedDate])
   const factors = useMemo(() => explainAnomaly(selectedDate, mapped), [selectedDate])
-  const selectedEvent = mapped.find((event) => event.id === selectedEventId) ?? relatedEvents[0] ?? mapped[0]
+  const selectedEvent = relatedEvents.find((event) => event.id === selectedEventId) ?? null
+
+  useEffect(() => {
+    setSelectedEventId(relatedEvents[0]?.id ?? '')
+  }, [relatedEvents])
 
   const selectEvent = (id: string) => {
     setSelectedEventId(id)
@@ -180,7 +184,7 @@ function PriceChart({ data, selectedDate, onSelect }: { data: MarketData[]; sele
       {item.isAnomaly && <circle className="anomaly-halo" cx={x(index)} cy={y(item.close)} r="15" />}
       <line className="range-line" x1={x(index)} x2={x(index)} y1={y(item.high)} y2={y(item.low)} />
       <circle cx={x(index)} cy={y(item.close)} r={item.date === selectedDate ? 5 : 3.5} />
-      {item.isAnomaly && <text className="anomaly-label" x={x(index) - 27} y={y(item.high) - 12}>+12.87%</text>}
+      {item.isAnomaly && <text className={`anomaly-label ${item.changePercent >= 0 ? 'up' : 'down'}`} x={x(index) - 27} y={y(item.high) - 12}>{item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%</text>}
       <text className="date-label" x={x(index)} y={height - 13} textAnchor="middle">{item.date.slice(5)}</text>
     </g>)}
   </svg></div>
@@ -194,11 +198,11 @@ function EventRow({ event, index, selected, onSelect, buttonRef }: { event: Even
 }
 
 function EventDetail({ event }: { event: Event }) {
-  return <div className="event-detail"><div className="detail-topline"><span className={`event-type type-${event.type}`}>{EVENT_TYPE_LABELS[event.type]}</span><span className={classificationClass(event.classification)}>{CLASSIFICATION_LABELS[event.classification]}</span></div><h3>{event.title}</h3><div className="detail-meta"><span>发布时间</span><strong>{formatPublishedAt(event.publishedAt)}</strong><span>来源</span><strong>{event.source}</strong></div><p className="detail-summary">{event.summary}</p><div className="evidence-heading"><span>证据链</span><small>{event.evidence.length ? `${event.evidence.length} 条记录` : '无证据记录'}</small></div>{event.evidence.length ? <div className="evidence-list">{event.evidence.map((evidence) => <div className="evidence-card" key={evidence.text}><div className="evidence-card-top"><span className={`strength strength-${evidence.strength}`}>{STRENGTH_LABELS[evidence.strength]}</span><span>{evidence.source}</span></div><p>{evidence.text}</p></div>)}</div> : <StateCard tone="red" icon="!" title="证据不足" detail="这条记录不包含可核验的证据，不能支撑因果结论。" />}<div className="mapping-note"><span>↳</span><p><strong>交易日映射</strong><small>{event.mappingReason ?? '尚未完成映射'} · {event.mappedTradingDate ?? '不可用'}</small></p></div></div>
+  return <div className="event-detail"><div className="detail-topline"><span className={`event-type type-${event.type}`}>{EVENT_TYPE_LABELS[event.type]}</span><span className={classificationClass(event.classification)}>{CLASSIFICATION_LABELS[event.classification]}</span></div><h3>{event.title}</h3><div className="detail-meta"><span>原始发布时间</span><strong>{event.publishedAt}</strong><span>原始时区</span><strong>{event.timezone}</strong><span>交易所时间</span><strong>{formatPublishedAt(event.publishedAt)}</strong><span>来源</span><strong>{event.source}</strong></div><p className="detail-summary">{event.summary}</p><div className="evidence-heading"><span>证据链</span><small>{event.evidence.length ? `${event.evidence.length} 条记录` : '无证据记录'}</small></div>{event.evidence.length ? <div className="evidence-list">{event.evidence.map((evidence) => <div className="evidence-card" key={evidence.text}><div className="evidence-card-top"><span className={`strength strength-${evidence.strength}`}>{STRENGTH_LABELS[evidence.strength]}</span><span>{evidence.source}</span></div><p>{evidence.text}</p></div>)}</div> : <StateCard tone="red" icon="!" title="证据不足" detail="这条记录不包含可核验的证据，不能支撑因果结论。" />}<div className="mapping-note"><span>↳</span><p><strong>交易日映射</strong><small>mappedTradingDate：{event.mappedTradingDate ?? '不可用'}</small><small>mappingReason：{event.mappingReason ?? '尚未完成映射'}</small></p></div></div>
 }
 
 function AgentAssistant({ factors, onSelectFactor, selectedDate }: { factors: ReturnType<typeof explainAnomaly>; onSelectFactor: (eventId: string) => void; selectedDate: string }) {
-  return <section className="agent-float"><div className="agent-head"><div className="agent-avatar"><span /> <span /> <span /></div><div><strong>Trace Agent</strong><small>解释上下文已同步 · {selectedDate}</small></div><span className="agent-live">LIVE</span></div><div className="agent-intro"><span>✦</span><p>基于当前异动日，我找到 <strong>{factors.length}</strong> 个可能影响因素。它们是解释线索，不是确定性归因。</p></div><div className="factor-list">{factors.length ? factors.map((factor) => <button className="factor-card" key={factor.id} onClick={() => factor.relatedEventIds[0] && onSelectFactor(factor.relatedEventIds[0])}><div className="factor-top"><span className={classificationClass(factor.classification)}>{CLASSIFICATION_LABELS[factor.classification]}</span>{factor.confidence !== undefined && <span className="confidence">置信度 {Math.round(factor.confidence * 100)}%</span>}</div><strong>{factor.title}</strong><p>{factor.summary}</p><small className="factor-link">查看关联事件 <span>↗</span></small>{factor.uncertainty && <div className="uncertainty"><span>!</span>{factor.uncertainty}</div>}</button>) : <div className="agent-empty">当前日期没有足够事件，Agent 不生成解释。</div>}</div><div className="agent-footer">模拟 Agent · 规则与预设解释 · <span>不构成投资建议</span></div></section>
+  return <section className="agent-float"><div className="agent-head"><div className="agent-avatar"><span /> <span /> <span /></div><div><strong>Trace Agent</strong><small>解释上下文已同步 · {selectedDate}</small></div><span className="agent-live">LIVE</span></div><div className="agent-intro"><span>✦</span><p>基于当前异动日，我找到 <strong>{factors.length}</strong> 个可能影响因素。它们是解释线索，不是确定性归因。</p></div><div className="factor-list">{factors.length ? factors.map((factor) => <button className="factor-card" key={factor.id} onClick={() => factor.relatedEventIds[0] && onSelectFactor(factor.relatedEventIds[0])}><div className="factor-top"><span className={classificationClass(factor.classification)}>{CLASSIFICATION_LABELS[factor.classification]}</span>{factor.confidence !== undefined && <span className="confidence">置信度 {Math.round(factor.confidence * 100)}%</span>}</div><strong>{factor.title}</strong><p>{factor.summary}</p><div className="factor-evidence"><span>依据</span><p>{factor.evidence}</p></div><small className="factor-link">查看关联事件 <span>↗</span></small>{factor.uncertainty && <div className="uncertainty"><span>!</span>{factor.uncertainty}</div>}</button>) : <div className="agent-empty">当前日期没有足够事件，Agent 不生成解释。</div>}</div><div className="agent-footer">模拟 Agent · 规则与预设解释 · <span>不构成投资建议</span></div></section>
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
