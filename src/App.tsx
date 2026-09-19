@@ -15,6 +15,17 @@ function formatVolume(value: number) {
   return `${(value / 10000).toFixed(0)} 万`
 }
 
+function formatVolumeComparison(data: MarketData[], selectedDate: string) {
+  const selectedIndex = data.findIndex((item) => item.date === selectedDate)
+  const previous = selectedIndex > 0 ? data.slice(Math.max(0, selectedIndex - 5), selectedIndex) : []
+  if (!previous.length) return '暂无前序交易日均值'
+
+  const average = previous.reduce((sum, item) => sum + item.volume, 0) / previous.length
+  const selected = data[selectedIndex].volume
+  const changePercent = ((selected / average) - 1) * 100
+  return `较前 ${previous.length} 日均值 ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(0)}%`
+}
+
 function classificationClass(classification: Classification) {
   return `tag tag-${classification}`
 }
@@ -35,6 +46,10 @@ function App() {
   const relatedEvents = useMemo(() => eventsForDate(mapped, selectedDate), [selectedDate])
   const factors = useMemo(() => explainAnomaly(selectedDate, mapped), [selectedDate])
   const selectedEvent = relatedEvents.find((event) => event.id === selectedEventId) ?? null
+  const volumeComparison = formatVolumeComparison(preparedMarket, selectedDate)
+  const agentFactors = selectedMarket.isAnomaly ? factors : []
+  const outOfRangeEvent = mapped.find((event) => event.mappingStatus === 'out-of-range')
+  const invalidEvent = mapped.find((event) => event.mappingStatus === 'invalid')
 
   useEffect(() => {
     setSelectedEventId(relatedEvents[0]?.id ?? '')
@@ -114,7 +129,7 @@ function App() {
               <div className="chart-summary">
                 <div><span>当前选中</span><strong>{selectedMarket.date}</strong><small>{dateFormatter.format(new Date(`${selectedMarket.date}T00:00:00`))}</small></div>
                 <div className="summary-close"><span>收盘价</span><strong>{selectedMarket.close.toFixed(2)}</strong><small className={selectedMarket.change >= 0 ? 'positive' : 'negative'}>{selectedMarket.change >= 0 ? '▲' : '▼'} {Math.abs(selectedMarket.changePercent).toFixed(2)}%</small></div>
-                <div><span>成交量</span><strong>{formatVolume(selectedMarket.volume)}</strong><small>较近 5 日均值 +142%</small></div>
+                <div><span>成交量</span><strong>{formatVolume(selectedMarket.volume)}</strong><small>{volumeComparison}</small></div>
               </div>
               <PriceChart data={preparedMarket} selectedDate={selectedDate} onSelect={setSelectedDate} />
               <div className="chart-footnote"><span className="anomaly-pill">↗ 异动阈值 ≥ 8%</span><span>点击图中节点切换交易日 · 共 {preparedMarket.length} 个交易日</span></div>
@@ -128,9 +143,9 @@ function App() {
               {demoState === 'empty' ? (
                 <EmptyState title="当前时间范围暂无事件" detail="切换到 2026-09-11 查看内置演示数据。" />
               ) : demoState === 'out-of-range' ? (
-                <StateCard tone="amber" icon="↗" title="事件超出当前分析范围" detail="2026-12-31 的事件无法映射到当前交易日历；系统保留原始记录，但不会参与当日解释。" />
+                <StateCard tone="amber" icon="↗" title={outOfRangeEvent ? `范围外：${outOfRangeEvent.title}` : '没有范围外事件'} detail={outOfRangeEvent ? `${outOfRangeEvent.id} · 原始时间 ${formatPublishedAt(outOfRangeEvent.publishedAt)} · ${outOfRangeEvent.mappingReason ?? '未提供映射原因'}。` : '当前没有处理为范围外的模拟事件。'} />
               ) : demoState === 'invalid' ? (
-                <StateCard tone="red" icon="!" title="检测到异常数据" detail="evt-invalid-001 的发布时间无法解析，已从时间线与 Agent 解释中排除。" />
+                <StateCard tone="red" icon="!" title={invalidEvent ? `异常数据：${invalidEvent.title}` : '没有异常数据'} detail={invalidEvent ? `${invalidEvent.id} · 原始发布时间：${invalidEvent.publishedAt} · ${invalidEvent.mappingReason ?? '未提供异常原因'}，已从时间线与 Agent 解释中排除。` : '当前没有处理为异常的模拟事件。'} />
               ) : relatedEvents.length === 0 ? (
                 <EmptyState title="该交易日没有相关事件" detail="时间线保持为空，不对价格变化做无依据的解释。" />
               ) : (
@@ -157,7 +172,7 @@ function App() {
         </section>
       </main>
 
-      <AgentAssistant factors={factors} onSelectFactor={selectFactor} selectedDate={selectedDate} />
+      <AgentAssistant factors={agentFactors} onSelectFactor={selectFactor} selectedDate={selectedDate} isAnomaly={selectedMarket.isAnomaly} />
       <footer className="page-footer"><span>SignalTrace / interview assignment</span><span>本页面所有数据均为内置模拟数据 · v1.0.0</span></footer>
     </div>
   )
@@ -192,8 +207,9 @@ function PriceChart({ data, selectedDate, onSelect }: { data: MarketData[]; sele
 
 function EventRow({ event, index, selected, onSelect, buttonRef }: { event: Event; index: number; selected: boolean; onSelect: (id: string) => void; buttonRef: (node: HTMLButtonElement | null) => void }) {
   const local = formatPublishedAt(event.publishedAt).split(' ')[1] ?? '—'
+  const mappingLabel = event.mappingReason?.includes('非交易日') ? '非交易日 → 次日' : event.mappingReason?.includes('收盘后') ? '盘后 → 次日' : '当日映射'
   return <button ref={buttonRef} className={`event-row ${selected ? 'selected' : ''}`} onClick={() => onSelect(event.id)}>
-    <span className="event-index">0{index + 1}</span><span className="event-time">{local}<small>{event.mappingReason?.includes('收盘后') ? '盘后 → 次日' : '当日映射'}</small></span><span className={`event-type type-${event.type}`}>{EVENT_TYPE_LABELS[event.type]}</span><span className="event-content"><strong>{event.title}</strong><small>{event.source} · {event.summary}</small></span><span className="event-arrow">↗</span>
+    <span className="event-index">0{index + 1}</span><span className="event-time">{local}<small>{mappingLabel}</small></span><span className={`event-type type-${event.type}`}>{EVENT_TYPE_LABELS[event.type]}</span><span className="event-content"><strong>{event.title}</strong><small>{event.source} · {event.summary}</small></span><span className="event-arrow">↗</span>
   </button>
 }
 
@@ -201,8 +217,8 @@ function EventDetail({ event }: { event: Event }) {
   return <div className="event-detail"><div className="detail-topline"><span className={`event-type type-${event.type}`}>{EVENT_TYPE_LABELS[event.type]}</span><span className={classificationClass(event.classification)}>{CLASSIFICATION_LABELS[event.classification]}</span></div><h3>{event.title}</h3><div className="detail-meta"><span>原始发布时间</span><strong>{event.publishedAt}</strong><span>原始时区</span><strong>{event.timezone}</strong><span>交易所时间</span><strong>{formatPublishedAt(event.publishedAt)}</strong><span>来源</span><strong>{event.source}</strong></div><p className="detail-summary">{event.summary}</p><div className="evidence-heading"><span>证据链</span><small>{event.evidence.length ? `${event.evidence.length} 条记录` : '无证据记录'}</small></div>{event.evidence.length ? <div className="evidence-list">{event.evidence.map((evidence) => <div className="evidence-card" key={evidence.text}><div className="evidence-card-top"><span className={`strength strength-${evidence.strength}`}>{STRENGTH_LABELS[evidence.strength]}</span><span>{evidence.source}</span></div><p>{evidence.text}</p></div>)}</div> : <StateCard tone="red" icon="!" title="证据不足" detail="这条记录不包含可核验的证据，不能支撑因果结论。" />}<div className="mapping-note"><span>↳</span><p><strong>交易日映射</strong><small>mappedTradingDate：{event.mappedTradingDate ?? '不可用'}</small><small>mappingReason：{event.mappingReason ?? '尚未完成映射'}</small></p></div></div>
 }
 
-function AgentAssistant({ factors, onSelectFactor, selectedDate }: { factors: ReturnType<typeof explainAnomaly>; onSelectFactor: (eventId: string) => void; selectedDate: string }) {
-  return <section className="agent-float"><div className="agent-head"><div className="agent-avatar"><span /> <span /> <span /></div><div><strong>Trace Agent</strong><small>解释上下文已同步 · {selectedDate}</small></div><span className="agent-live">LIVE</span></div><div className="agent-intro"><span>✦</span><p>基于当前异动日，我找到 <strong>{factors.length}</strong> 个可能影响因素。它们是解释线索，不是确定性归因。</p></div><div className="factor-list">{factors.length ? factors.map((factor) => <button className="factor-card" key={factor.id} onClick={() => factor.relatedEventIds[0] && onSelectFactor(factor.relatedEventIds[0])}><div className="factor-top"><span className={classificationClass(factor.classification)}>{CLASSIFICATION_LABELS[factor.classification]}</span>{factor.confidence !== undefined && <span className="confidence">置信度 {Math.round(factor.confidence * 100)}%</span>}</div><strong>{factor.title}</strong><p>{factor.summary}</p><div className="factor-evidence"><span>依据</span><p>{factor.evidence}</p></div><small className="factor-link">查看关联事件 <span>↗</span></small>{factor.uncertainty && <div className="uncertainty"><span>!</span>{factor.uncertainty}</div>}</button>) : <div className="agent-empty">当前日期没有足够事件，Agent 不生成解释。</div>}</div><div className="agent-footer">模拟 Agent · 规则与预设解释 · <span>不构成投资建议</span></div></section>
+function AgentAssistant({ factors, onSelectFactor, selectedDate, isAnomaly }: { factors: ReturnType<typeof explainAnomaly>; onSelectFactor: (eventId: string) => void; selectedDate: string; isAnomaly: boolean }) {
+  return <section className="agent-float"><div className="agent-head"><div className="agent-avatar"><span /> <span /> <span /></div><div><strong>Trace Agent</strong><small>{isAnomaly ? '异动日解释上下文' : '普通交易日观察'} · {selectedDate}</small></div><span className="agent-live">{isAnomaly ? 'ANOMALY' : 'ORDINARY'}</span></div><div className="agent-intro"><span>✦</span>{isAnomaly ? <p>基于当前异动日，我找到 <strong>{factors.length}</strong> 个可能影响因素。它们是解释线索，不是确定性归因。</p> : <p>当前为普通交易日，系统仅展示同日事件，不生成异动归因。</p>}</div><div className="factor-list">{isAnomaly && factors.length ? factors.map((factor) => <button className="factor-card" key={factor.id} onClick={() => factor.relatedEventIds[0] && onSelectFactor(factor.relatedEventIds[0])}><div className="factor-top"><span className={classificationClass(factor.classification)}>{CLASSIFICATION_LABELS[factor.classification]}</span>{factor.confidence !== undefined && <span className="confidence">置信度 {Math.round(factor.confidence * 100)}%</span>}</div><strong>{factor.title}</strong><p>{factor.summary}</p><div className="factor-evidence"><span>依据</span><p>{factor.evidence}</p></div><small className="factor-link">查看关联事件 <span>↗</span></small>{factor.uncertainty && <div className="uncertainty"><span>!</span>{factor.uncertainty}</div>}</button>) : <div className="agent-empty">{isAnomaly ? '当前日期没有足够事件，Agent 不生成解释。' : '普通交易日：不生成异动解释。'}</div>}</div><div className="agent-footer">模拟 Agent · 规则与预设解释 · <span>不构成投资建议</span></div></section>
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {

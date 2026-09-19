@@ -33,3 +33,12 @@
 - `npm run build`：TypeScript 检查通过，Vite production build 成功。
 - 页面默认异动日为 2026-09-11；盘后公告映射到该日，周末事件映射到 2026-09-14。
 - 浏览器自动化检查在当前桌面环境的 CUA 入口超时，因此未将该工具失败误判为应用故障；可用本地 `npm run dev` 手动检查交互。
+
+## 5. 验收修复阶段
+
+- 修复 `EventRow` 对非交易日事件的映射文案，依据处理后的 `mappingReason` 显示“非交易日 → 次日”。
+- 将成交量说明改为根据当前选中日与前序最多 5 个交易日动态计算；没有前序交易日时显示“暂无前序交易日均值”。
+- Agent 区分异动日与普通交易日：只有异动日生成因素，普通交易日显示观察态，不生成异动归因。
+- Out-of-range / Invalid 状态改为读取 `mappedEvents` 中对应 `mappingStatus`、事件 ID、原始时间和 `mappingReason`。
+- README 测试说明更新为 6 项，需求 checklist 按实际完成情况全部勾选。
+- 新增跨时区、15:00、15:01 测试后，`npm test` 结果为 6 tests passed，`npm run build` 成功。
